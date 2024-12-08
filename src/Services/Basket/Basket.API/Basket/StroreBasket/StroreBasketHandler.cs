@@ -1,27 +1,38 @@
-﻿namespace Basket.API.Basket.StroreBasket
+﻿using Discount.Grpc;
+
+namespace Basket.API.Basket.StroreBasket
 {
-    public record StroreBasketCommand(ShoppingCart Cart) 
+    public record StroreBasketCommand(ShoppingCart Cart)
         : ICommand<StoreBasketResult>;
     public record StoreBasketResult(string UserName);
     public class StroreBasketCommandValidator : AbstractValidator<StroreBasketCommand>
     {
         public StroreBasketCommandValidator()
         {
-            RuleFor(x=>x.Cart).NotNull().WithMessage("Cart cannot be null!");
-            RuleFor(x=>x.Cart.UserName).NotEmpty().WithMessage("UserName is required!");
+            RuleFor(x => x.Cart).NotNull().WithMessage("Cart cannot be null!");
+            RuleFor(x => x.Cart.UserName).NotEmpty().WithMessage("UserName is required!");
         }
     }
     public class StroreBasketCommandHandler
-        (IBasketRepository repository)
+        (IBasketRepository repository, DiscountProtoService.DiscountProtoServiceClient discountProto)
         : ICommandHandler<StroreBasketCommand, StoreBasketResult>
     {
         public async Task<StoreBasketResult> Handle(StroreBasketCommand command, CancellationToken cancellationToken)
         {
+            await DeductDiscount(command.Cart, cancellationToken);
+
             await repository.StoreBasket(command.Cart, cancellationToken);
-            //Update cache
 
             return new StoreBasketResult(command.Cart.UserName);
+        }
 
+        public async Task DeductDiscount(ShoppingCart cart, CancellationToken cancellationToken)
+        {
+            foreach (var item in cart.Items)
+            {
+                var coupon = await discountProto.GetDiscountAsync(new GetDiscountRequest { ProductName = item.ProductName }, cancellationToken: cancellationToken);
+                item.Price -= coupon.Amount;
+            }
         }
     }
 }
